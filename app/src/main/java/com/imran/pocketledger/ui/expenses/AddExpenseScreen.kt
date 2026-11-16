@@ -1,5 +1,6 @@
 package com.imran.pocketledger.ui.expenses
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,10 +26,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,10 +38,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.imran.pocketledger.AppContainer
 import com.imran.pocketledger.model.Category
-import com.imran.pocketledger.model.Expense
-import com.imran.pocketledger.model.ExpenseValidation
-import com.imran.pocketledger.model.validateExpense
 import com.imran.pocketledger.ui.theme.PocketLedgerTheme
 import java.time.Instant
 import java.time.LocalDate
@@ -48,68 +50,39 @@ import java.time.format.DateTimeFormatter
 
 private val formDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
 
-/**
- * Stateful wrapper: owns the form state and decides what happens on Save.
- * rememberSaveable keeps every field across rotation.
- */
+/** Route: wires the ViewModel to the stateless form, and turns one-off effects into navigation. */
 @Composable
-fun AddExpenseScreen(
-    nextId: Long,
-    onSave: (Expense) -> Unit,
-    onCancel: () -> Unit,
+fun AddExpenseRoute(
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    viewModel: AddExpenseViewModel = viewModel { AddExpenseViewModel(AppContainer.expenseRepository) },
 ) {
-    var title by rememberSaveable { mutableStateOf("") }
-    var amountText by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf(Category.FOOD) }
-    var date by rememberSaveable { mutableStateOf(LocalDate.now()) }
-    var submitted by rememberSaveable { mutableStateOf(false) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val currentOnClose by rememberUpdatedState(onClose)
 
-    val validation = validateExpense(nextId, title, amountText, category, date)
-    // Only nag the user about errors after they've tried to save once.
-    val errors = (validation as? ExpenseValidation.Invalid).takeIf { submitted }
-
-    AddExpenseForm(
-        title = title,
-        onTitleChange = { title = it },
-        amountText = amountText,
-        onAmountChange = { amountText = it },
-        category = category,
-        onCategoryChange = { category = it },
-        date = date,
-        onDateChange = { date = it },
-        titleError = errors?.titleError,
-        amountError = errors?.amountError,
-        onSaveClick = {
-            submitted = true
-            when (validation) {
-                is ExpenseValidation.Valid -> onSave(validation.expense)
-                is ExpenseValidation.Invalid -> Unit // errors are now shown
+    // Like useEffect(() => ..., []): starts once, cancelled when this composable leaves the screen.
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                AddExpenseEffect.Close -> currentOnClose()
             }
-        },
-        onCancelClick = onCancel,
-        modifier = modifier,
-    )
+        }
+    }
+
+    // System back = Cancel, so the ViewModel also resets the form.
+    BackHandler { viewModel.onEvent(AddExpenseEvent.Cancel) }
+
+    AddExpenseForm(state = uiState, onEvent = viewModel::onEvent, modifier = modifier)
 }
 
-/** Stateless form: everything comes in as parameters, every change goes out as a callback. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Stateless form: renders `state`, reports every user action as an event. */
 @Composable
 fun AddExpenseForm(
-    title: String,
-    onTitleChange: (String) -> Unit,
-    amountText: String,
-    onAmountChange: (String) -> Unit,
-    category: Category,
-    onCategoryChange: (Category) -> Unit,
-    date: LocalDate,
-    onDateChange: (LocalDate) -> Unit,
-    titleError: String?,
-    amountError: String?,
-    onSaveClick: () -> Unit,
-    onCancelClick: () -> Unit,
+    state: AddExpenseUiState,
+    onEvent: (AddExpenseEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Whether the dialog is open is pure UI state, so it stays here, not in the ViewModel.
     var showDatePicker by remember { mutableStateOf(false) }
 
     Column(
@@ -123,23 +96,23 @@ fun AddExpenseForm(
         Text(text = "Add expense", style = MaterialTheme.typography.headlineSmall)
 
         OutlinedTextField(
-            value = title,
-            onValueChange = onTitleChange,
+            value = state.title,
+            onValueChange = { onEvent(AddExpenseEvent.TitleChanged(it)) },
             label = { Text("Title") },
             singleLine = true,
-            isError = titleError != null,
-            supportingText = titleError?.let { { Text(it) } },
+            isError = state.titleError != null,
+            supportingText = state.titleError?.let { { Text(it) } },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth(),
         )
 
         OutlinedTextField(
-            value = amountText,
-            onValueChange = onAmountChange,
+            value = state.amountText,
+            onValueChange = { onEvent(AddExpenseEvent.AmountChanged(it)) },
             label = { Text("Amount") },
             singleLine = true,
-            isError = amountError != null,
-            supportingText = amountError?.let { { Text(it) } },
+            isError = state.amountError != null,
+            supportingText = state.amountError?.let { { Text(it) } },
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Decimal,
                 imeAction = ImeAction.Done,
@@ -147,30 +120,41 @@ fun AddExpenseForm(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        CategoryDropdown(selected = category, onSelected = onCategoryChange)
+        CategoryDropdown(
+            selected = state.category,
+            onSelected = { onEvent(AddExpenseEvent.CategoryChanged(it)) },
+        )
 
         OutlinedButton(
             onClick = { showDatePicker = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Date: ${date.format(formDateFormatter)}")
+            Text("Date: ${state.date.format(formDateFormatter)}")
         }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.End),
         ) {
-            TextButton(onClick = onCancelClick) { Text("Cancel") }
-            Button(onClick = onSaveClick) { Text("Save") }
+            TextButton(
+                onClick = { onEvent(AddExpenseEvent.Cancel) },
+                enabled = !state.isSaving,
+            ) { Text("Cancel") }
+            Button(
+                onClick = { onEvent(AddExpenseEvent.Save) },
+                enabled = !state.isSaving,
+            ) {
+                Text(if (state.isSaving) "Saving…" else "Save")
+            }
         }
     }
 
     if (showDatePicker) {
         ExpenseDatePickerDialog(
-            initialDate = date,
+            initialDate = state.date,
             onDismiss = { showDatePicker = false },
             onConfirm = {
-                onDateChange(it)
+                onEvent(AddExpenseEvent.DateChanged(it))
                 showDatePicker = false
             },
         )
@@ -250,18 +234,13 @@ private fun ExpenseDatePickerDialog(
 fun AddExpenseFormPreview() {
     PocketLedgerTheme {
         AddExpenseForm(
-            title = "",
-            onTitleChange = {},
-            amountText = "12.345",
-            onAmountChange = {},
-            category = Category.FOOD,
-            onCategoryChange = {},
-            date = LocalDate.of(2026, 11, 16),
-            onDateChange = {},
-            titleError = "Title is required",
-            amountError = "Enter a positive amount with at most 2 decimals",
-            onSaveClick = {},
-            onCancelClick = {},
+            state = AddExpenseUiState(
+                amountText = "12.345",
+                date = LocalDate.of(2026, 11, 16),
+                titleError = "Title is required",
+                amountError = "Enter a positive amount with at most 2 decimals",
+            ),
+            onEvent = {},
         )
     }
 }
