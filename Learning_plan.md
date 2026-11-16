@@ -204,7 +204,7 @@ Android Studio + emulator work best **natively on Windows**. Recommended:
 - [x] M0 — Setup & Hello Kotlin
 - [x] M1 — Expense list UI
 - [x] M2 — Add expense form & local state
-- [ ] M3 — ViewModel, coroutines, UDF
+- [x] M3 — ViewModel, coroutines, UDF
 - [ ] M4 — Navigation & process death
 - [ ] M5 — Hilt & modularization
 - [ ] M6 — Room persistence

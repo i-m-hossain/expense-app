@@ -22,6 +22,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -69,10 +70,17 @@ fun AddExpenseRoute(
         }
     }
 
-    // System back = Cancel, so the ViewModel also resets the form.
+    // System back goes through Cancel, so it's ignored while a save is running.
     BackHandler { viewModel.onEvent(AddExpenseEvent.Cancel) }
 
-    AddExpenseForm(state = uiState, onEvent = viewModel::onEvent, modifier = modifier)
+    // Scaffold here just keeps the form clear of the status and navigation bars.
+    Scaffold(modifier = modifier) { innerPadding ->
+        AddExpenseForm(
+            state = uiState,
+            onEvent = viewModel::onEvent,
+            modifier = Modifier.padding(innerPadding),
+        )
+    }
 }
 
 /** Stateless form: renders `state`, reports every user action as an event. */

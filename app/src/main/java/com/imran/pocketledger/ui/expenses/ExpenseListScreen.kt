@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,26 +32,40 @@ private val monthFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM
 /** Route: connects the ViewModel to the screen. The only place that knows a ViewModel exists. */
 @Composable
 fun ExpenseListRoute(
+    onAddClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ExpenseListViewModel = viewModel { ExpenseListViewModel(AppContainer.expenseRepository) },
 ) {
     // Like useSelector: re-renders when the state changes; stops collecting while the app is in the background.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    ExpenseListScreen(uiState = uiState, modifier = modifier)
+    ExpenseListScreen(uiState = uiState, onAddClick = onAddClick, modifier = modifier)
 }
 
 /** Pure function of state: no ViewModel, no business logic, easy to preview. */
 @Composable
-fun ExpenseListScreen(uiState: ExpenseListUiState, modifier: Modifier = Modifier) {
-    when (uiState) {
-        ExpenseListUiState.Loading -> CenteredBox(modifier) { CircularProgressIndicator() }
-        ExpenseListUiState.Empty -> CenteredBox(modifier) {
-            Text("No expenses yet. Tap \"+ Add expense\" to start.")
+fun ExpenseListScreen(
+    uiState: ExpenseListUiState,
+    onAddClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Each screen now owns its Scaffold, so the FAB lives with the screen that uses it.
+    Scaffold(
+        modifier = modifier,
+        floatingActionButton = {
+            ExtendedFloatingActionButton(onClick = onAddClick) { Text("+ Add expense") }
+        },
+    ) { innerPadding ->
+        val contentModifier = Modifier.padding(innerPadding)
+        when (uiState) {
+            ExpenseListUiState.Loading -> CenteredBox(contentModifier) { CircularProgressIndicator() }
+            ExpenseListUiState.Empty -> CenteredBox(contentModifier) {
+                Text("No expenses yet. Tap \"+ Add expense\" to start.")
+            }
+            is ExpenseListUiState.Error -> CenteredBox(contentModifier) {
+                Text(uiState.message, color = MaterialTheme.colorScheme.error)
+            }
+            is ExpenseListUiState.Success -> ExpenseList(uiState, contentModifier)
         }
-        is ExpenseListUiState.Error -> CenteredBox(modifier) {
-            Text(uiState.message, color = MaterialTheme.colorScheme.error)
-        }
-        is ExpenseListUiState.Success -> ExpenseList(uiState, modifier)
     }
 }
 
@@ -110,6 +126,7 @@ fun ExpenseListScreenPreview() {
                 total = sampleExpenses.sumOf { it.amount },
                 months = groupByMonth(sampleExpenses).map { (month, items) -> MonthSection(month, items) },
             ),
+            onAddClick = {},
         )
     }
 }
@@ -118,6 +135,6 @@ fun ExpenseListScreenPreview() {
 @Composable
 fun ExpenseListEmptyPreview() {
     PocketLedgerTheme {
-        ExpenseListScreen(uiState = ExpenseListUiState.Empty)
+        ExpenseListScreen(uiState = ExpenseListUiState.Empty, onAddClick = {})
     }
 }
