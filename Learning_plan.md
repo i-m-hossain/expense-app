@@ -205,7 +205,7 @@ Android Studio + emulator work best **natively on Windows**. Recommended:
 - [x] M1 — Expense list UI
 - [x] M2 — Add expense form & local state
 - [x] M3 — ViewModel, coroutines, UDF
-- [ ] M4 — Navigation & process death
+- [x] M4 — Navigation & process death
 - [ ] M5 — Hilt & modularization
 - [ ] M6 — Room persistence
 - [ ] M7 — Networking & sync

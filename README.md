@@ -3,7 +3,7 @@
 An Android expense tracker, built step by step to learn Kotlin and Jetpack Compose.
 The milestones and progress are tracked in [Learning_plan.md](Learning_plan.md).
 
-> **Status:** Milestone 4 (Navigation & process death). Data is kept **in memory** and resets
+> **Status:** M0–M4 complete; next is M5 (Hilt & modularization). Data is kept **in memory** and resets
 > when the app process is killed. Saving to a database comes in M6 (Room).
 
 ## Features
