@@ -19,14 +19,14 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxDefaults
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -39,7 +39,10 @@ import com.imran.pocketledger.model.ExpenseId
 import com.imran.pocketledger.model.groupByMonth
 import com.imran.pocketledger.model.sampleExpenses
 import com.imran.pocketledger.ui.theme.PocketLedgerTheme
+import com.imran.pocketledger.UiConfig
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.format.DateTimeFormatter
+import kotlin.time.Duration
 
 private val monthFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MMMM yyyy")
 
@@ -49,22 +52,27 @@ fun ExpenseListRoute(
     onAddClick: () -> Unit,
     onExpenseClick: (ExpenseId) -> Unit,
     modifier: Modifier = Modifier,
+    undoTimeout: Duration = UiConfig.undoSnackbarTimeout,
     viewModel: ExpenseListViewModel = viewModel { ExpenseListViewModel(AppContainer.expenseRepository) },
 ) {
     // Like useSelector: re-renders when the state changes; stops collecting while the app is in the background.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(viewModel) {
+    LaunchedEffect(viewModel, undoTimeout) {
         viewModel.effects.collect { effect ->
             when (effect) {
                 is ExpenseListEffect.ShowUndoDelete -> {
-                    // showSnackbar suspends until the snackbar is dismissed or its action is tapped.
-                    val result = snackbarHostState.showSnackbar(
-                        message = "Deleted \"${effect.expense.title}\"",
-                        actionLabel = "Undo",
-                        duration = SnackbarDuration.Short,
-                    )
+                    // SnackbarDuration only offers Short (~4 s) / Long (~10 s) / Indefinite.
+                    // For a custom time: show it Indefinite and cancel it ourselves after `undoTimeout`.
+                    // withTimeoutOrNull returns null if time ran out; cancelling also removes the snackbar.
+                    val result = withTimeoutOrNull(undoTimeout) {
+                        snackbarHostState.showSnackbar(
+                            message = "Deleted \"${effect.expense.title}\"",
+                            actionLabel = "Undo",
+                            duration = SnackbarDuration.Indefinite,
+                        )
+                    } ?: SnackbarResult.Dismissed
                     if (result == SnackbarResult.ActionPerformed) {
                         viewModel.undoDelete(effect.expense)
                     }
@@ -163,19 +171,16 @@ private fun SwipeToDeleteRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val swipeState = rememberSwipeToDismissBoxState()
-    val currentOnDelete by rememberUpdatedState(onDelete)
-
-    // Runs whenever the swipe settles; when it settles fully swiped, delete.
-    LaunchedEffect(swipeState.currentValue) {
-        if (swipeState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-            currentOnDelete()
-        }
-    }
+    // Plain `remember`, NOT rememberSwipeToDismissBoxState() (which uses rememberSaveable).
+    // LazyColumn keeps saveable state per item key even after the item is removed. Undo restores the
+    // expense with the same id, so a saveable state would come back "already swiped" and delete it again.
+    val positionalThreshold = SwipeToDismissBoxDefaults.positionalThreshold
+    val swipeState = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, positionalThreshold) }
 
     SwipeToDismissBox(
         state = swipeState,
         enableDismissFromStartToEnd = false,
+        onDismiss = { onDelete() }, // called once the row has been swiped fully off-screen
         backgroundContent = {
             Box(
                 modifier = Modifier
