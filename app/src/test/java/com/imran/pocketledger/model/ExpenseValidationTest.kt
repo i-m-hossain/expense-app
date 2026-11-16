@@ -24,7 +24,7 @@ class ExpenseValidationTest {
 
     @Test
     fun `validateExpense returns Valid with trimmed title`() {
-        val result = validateExpense(1, "  Lunch  ", "9.99", Category.FOOD, LocalDate.of(2026, 11, 1))
+        val result = validateExpense(ExpenseId(1), "  Lunch  ", "9.99", Category.FOOD, LocalDate.of(2026, 11, 1))
 
         assertTrue(result is ExpenseValidation.Valid)
         assertEquals("Lunch", (result as ExpenseValidation.Valid).expense.title)
@@ -32,7 +32,7 @@ class ExpenseValidationTest {
 
     @Test
     fun `validateExpense reports both errors`() {
-        val result = validateExpense(1, " ", "abc", Category.FOOD, LocalDate.of(2026, 11, 1))
+        val result = validateExpense(ExpenseId(1), " ", "abc", Category.FOOD, LocalDate.of(2026, 11, 1))
 
         assertEquals(
             ExpenseValidation.Invalid(

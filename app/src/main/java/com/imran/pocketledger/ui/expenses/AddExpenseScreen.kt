@@ -2,6 +2,7 @@ package com.imran.pocketledger.ui.expenses
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
@@ -40,9 +42,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.imran.pocketledger.AppContainer
 import com.imran.pocketledger.model.Category
+import com.imran.pocketledger.model.ExpenseId
 import com.imran.pocketledger.ui.theme.PocketLedgerTheme
 import java.time.Instant
 import java.time.LocalDate
@@ -54,9 +58,13 @@ private val formDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("
 /** Route: wires the ViewModel to the stateless form, and turns one-off effects into navigation. */
 @Composable
 fun AddExpenseRoute(
+    expenseId: ExpenseId?, // null = add a new expense, otherwise edit this one
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: AddExpenseViewModel = viewModel { AddExpenseViewModel(AppContainer.expenseRepository) },
+    viewModel: AddExpenseViewModel = viewModel {
+        // createSavedStateHandle(): the handle Android saves and restores across process death.
+        AddExpenseViewModel(expenseId, createSavedStateHandle(), AppContainer.expenseRepository)
+    },
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val currentOnClose by rememberUpdatedState(onClose)
@@ -75,11 +83,17 @@ fun AddExpenseRoute(
 
     // Scaffold here just keeps the form clear of the status and navigation bars.
     Scaffold(modifier = modifier) { innerPadding ->
-        AddExpenseForm(
-            state = uiState,
-            onEvent = viewModel::onEvent,
-            modifier = Modifier.padding(innerPadding),
-        )
+        if (uiState.isLoading) {
+            Box(Modifier.padding(innerPadding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            AddExpenseForm(
+                state = uiState,
+                onEvent = viewModel::onEvent,
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
     }
 }
 
@@ -101,7 +115,10 @@ fun AddExpenseForm(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(text = "Add expense", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            text = if (state.isEditing) "Edit expense" else "Add expense",
+            style = MaterialTheme.typography.headlineSmall,
+        )
 
         OutlinedTextField(
             value = state.title,

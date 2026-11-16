@@ -1,6 +1,7 @@
 package com.imran.pocketledger.data
 
 import com.imran.pocketledger.model.Expense
+import com.imran.pocketledger.model.ExpenseId
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -11,6 +12,17 @@ interface ExpenseRepository {
     /** Emits the full list now, and again every time it changes. */
     val expenses: Flow<List<Expense>>
 
-    /** Saves a new expense. The repository assigns the id, so callers can pass 0. */
+    /** One expense, or null if it doesn't exist (e.g. it was deleted). */
+    suspend fun get(id: ExpenseId): Expense?
+
+    /** Saves a new expense. The repository assigns the id, so callers pass [ExpenseId.NEW]. */
     suspend fun add(expense: Expense)
+
+    /** Replaces the expense with the same id. */
+    suspend fun update(expense: Expense)
+
+    suspend fun delete(id: ExpenseId)
+
+    /** Puts a deleted expense back with its original id (used by Undo). */
+    suspend fun restore(expense: Expense)
 }

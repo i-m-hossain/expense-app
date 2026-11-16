@@ -18,7 +18,7 @@ sealed interface ExpenseValidation {
 }
 
 fun validateExpense(
-    id: Long,
+    id: ExpenseId,
     title: String,
     amountText: String,
     category: Category,

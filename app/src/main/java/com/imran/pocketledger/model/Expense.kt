@@ -12,8 +12,20 @@ enum class Category(val label: String) {
     OTHER("Other"),
 }
 
+/**
+ * A value class: type-safe at compile time (you can't pass a random Long where an ExpenseId is expected),
+ * but at runtime it's just a Long, so it costs nothing extra.
+ */
+@JvmInline
+value class ExpenseId(val value: Long) {
+    companion object {
+        /** Placeholder for an expense that hasn't been saved yet; the repository assigns the real id. */
+        val NEW = ExpenseId(0)
+    }
+}
+
 data class Expense(
-    val id: Long,
+    val id: ExpenseId,
     val title: String,
     val amount: BigDecimal, // never Double for money, same reason as in Java
     val category: Category,

@@ -2,12 +2,16 @@ package com.imran.pocketledger.navigation
 
 import kotlinx.serialization.Serializable
 
-// Type-safe routes: each screen is a Kotlin type instead of a URL string like "add-expense".
+// Type-safe routes: each screen is a Kotlin type instead of a URL string like "expense/42".
 // @Serializable lets Navigation save them in the back stack (and restore them after process death).
-// Screens that need arguments (e.g. an expense id) will be `data class`es; these have none, so `data object`.
+// Arguments are plain Longs: Navigation knows how to save those. Screens wrap them in ExpenseId.
 
 @Serializable
 data object ExpenseList
 
 @Serializable
-data object AddExpense
+data class ExpenseDetail(val id: Long)
+
+/** One form for both add and edit: `expenseId = null` means "new expense". */
+@Serializable
+data class ExpenseForm(val expenseId: Long? = null)

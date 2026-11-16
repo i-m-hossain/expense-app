@@ -1,8 +1,11 @@
 package com.imran.pocketledger.ui.expenses
 
+import androidx.lifecycle.SavedStateHandle
 import com.imran.pocketledger.MainDispatcherRule
 import com.imran.pocketledger.data.ExpenseRepository
+import com.imran.pocketledger.model.Category
 import com.imran.pocketledger.model.Expense
+import com.imran.pocketledger.model.ExpenseId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -16,19 +19,37 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.math.BigDecimal
+import java.time.LocalDate
 
 /** A fake (not a mock): a tiny real implementation we fully control. */
-private class FakeExpenseRepository : ExpenseRepository {
-    val saved = mutableListOf<Expense>()
+private class FakeExpenseRepository(initial: List<Expense> = emptyList()) : ExpenseRepository {
+    val stored = initial.toMutableList()
+    val added = mutableListOf<Expense>()
+    val updated = mutableListOf<Expense>()
 
     /** If set, add() waits until the test completes it, so we can act "during" a save. */
     var gate: CompletableDeferred<Unit>? = null
 
-    override val expenses: Flow<List<Expense>> = MutableStateFlow(emptyList())
+    override val expenses: Flow<List<Expense>> = MutableStateFlow(initial)
+
+    override suspend fun get(id: ExpenseId): Expense? = stored.find { it.id == id }
 
     override suspend fun add(expense: Expense) {
         gate?.await()
-        saved += expense
+        added += expense
+    }
+
+    override suspend fun update(expense: Expense) {
+        updated += expense
+    }
+
+    override suspend fun delete(id: ExpenseId) {
+        stored.removeAll { it.id == id }
+    }
+
+    override suspend fun restore(expense: Expense) {
+        stored += expense
     }
 }
 
@@ -38,12 +59,26 @@ class AddExpenseViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
-    private val repository = FakeExpenseRepository()
-    private val viewModel = AddExpenseViewModel(repository)
+    private val existing = Expense(
+        id = ExpenseId(5),
+        title = "Cinema",
+        amount = BigDecimal("14.50"),
+        category = Category.ENTERTAINMENT,
+        date = LocalDate.of(2026, 11, 14),
+    )
+    private val repository = FakeExpenseRepository(initial = listOf(existing))
 
-    private fun fillValidForm() {
-        viewModel.onEvent(AddExpenseEvent.TitleChanged("Lunch"))
-        viewModel.onEvent(AddExpenseEvent.AmountChanged("12.50"))
+    /** Created lazily so the main-dispatcher rule is already in place. */
+    private val viewModel by lazy { newViewModel() }
+
+    private fun newViewModel(
+        expenseId: ExpenseId? = null,
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    ) = AddExpenseViewModel(expenseId, savedStateHandle, repository)
+
+    private fun AddExpenseViewModel.fillValidForm() {
+        onEvent(AddExpenseEvent.TitleChanged("Lunch"))
+        onEvent(AddExpenseEvent.AmountChanged("12.50"))
     }
 
     @Test
@@ -60,19 +95,18 @@ class AddExpenseViewModelTest {
         val state = viewModel.uiState.value
         assertEquals("Title is required", state.titleError)
         assertEquals("Amount is required", state.amountError)
-        assertTrue(repository.saved.isEmpty())
+        assertTrue(repository.added.isEmpty())
     }
 
     @Test
-    fun `saving a valid form stores it, resets the form and closes once`() = runTest {
+    fun `saving a valid form adds it and closes once`() = runTest {
         val effects = mutableListOf<AddExpenseEffect>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.effects.toList(effects) }
 
-        fillValidForm()
+        viewModel.fillValidForm()
         viewModel.onEvent(AddExpenseEvent.Save)
 
-        assertEquals("Lunch", repository.saved.single().title)
-        assertEquals(AddExpenseUiState().title, viewModel.uiState.value.title)
+        assertEquals("Lunch", repository.added.single().title)
         assertEquals(listOf(AddExpenseEffect.Close), effects)
     }
 
@@ -83,7 +117,7 @@ class AddExpenseViewModelTest {
         val gate = CompletableDeferred<Unit>()
         repository.gate = gate
 
-        fillValidForm()
+        viewModel.fillValidForm()
         viewModel.onEvent(AddExpenseEvent.Save)
         assertTrue(viewModel.uiState.value.isSaving)
 
@@ -94,6 +128,39 @@ class AddExpenseViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf(AddExpenseEffect.Close), effects)
-        assertEquals(1, repository.saved.size)
+        assertEquals(1, repository.added.size)
+    }
+
+    @Test
+    fun `editing prefills the form and saves with update, not add`() {
+        val editViewModel = newViewModel(expenseId = existing.id)
+
+        val state = editViewModel.uiState.value
+        assertTrue(state.isEditing)
+        assertEquals("Cinema", state.title)
+        assertEquals("14.50", state.amountText)
+
+        editViewModel.onEvent(AddExpenseEvent.TitleChanged("Cinema + popcorn"))
+        editViewModel.onEvent(AddExpenseEvent.Save)
+
+        assertEquals(existing.copy(title = "Cinema + popcorn"), repository.updated.single())
+        assertTrue(repository.added.isEmpty())
+    }
+
+    @Test
+    fun `draft survives process death via SavedStateHandle`() {
+        val handle = SavedStateHandle()
+        val before = newViewModel(savedStateHandle = handle)
+        before.onEvent(AddExpenseEvent.TitleChanged("Taxi"))
+        before.onEvent(AddExpenseEvent.AmountChanged("9.00"))
+        before.onEvent(AddExpenseEvent.CategoryChanged(Category.TRANSPORT))
+
+        // Android kills the app; a brand-new ViewModel gets the same saved handle back.
+        val after = newViewModel(savedStateHandle = handle)
+
+        val state = after.uiState.value
+        assertEquals("Taxi", state.title)
+        assertEquals("9.00", state.amountText)
+        assertEquals(Category.TRANSPORT, state.category)
     }
 }
